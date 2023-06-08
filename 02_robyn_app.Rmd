@@ -1,0 +1,298 @@
+---
+title: "MMM Automation | Robyn Algorithm"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    theme:
+      version: 4
+      bootswatch: cerulean
+runtime: shiny
+---
+
+```{css}
+.chart-wrapper .chart-stage {
+    overflow: auto;
+    padding: 5px 10px;
+    position: relative;
+}
+```
+
+
+```{r setup, include=FALSE}
+# *Robyn Dependencies ----
+library(data.table) 
+library(stringr) 
+library(lubridate) 
+library(doFuture)
+library(doRNG)
+library(foreach) 
+library(glmnet) 
+library(car) 
+library(StanHeaders)
+library(prophet)
+library(rstan)
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(ggpubr)
+library(see)
+library(PerformanceAnalytics)
+library(nloptr)
+library(minpack.lm)
+library(rPref)
+library(reticulate)
+library(rstudioapi)
+
+# * Tidyverse ----
+library(tidyverse)
+library(janitor)
+library(timetk)
+
+# Shiny ----
+library(shiny)
+library(bslib)
+library(flexdashboard)
+library(shinyWidgets)
+library(plotly)
+
+options(scipen = 999)
+
+
+# * Conda ----
+Sys.setenv(RETICULATE_PYTHON = "C:\\Users\\DavidStephens\\anaconda3\\envs\\robyn_marketing_mix/python.exe")
+use_condaenv('robyn_marketing_mix', required = TRUE)
+
+# * Robyn Functions ----
+source("robyn_source/fb_robyn.func.R")
+source("robyn_source/fb_robyn.optm.R")
+
+# Data ----
+simulated_data_tbl <- read_csv(
+  file = 'robyn_source/de_simulated_data.csv',
+  name_repair = make_clean_names
+) %>%
+  mutate(date = date + years(4),
+         date = ceiling_date(date, unit = "week", week_start = 1)) %>%
+  mutate(across(where(is.numeric), ~./10)) %>%
+  filter(date <= '2023-05-31') %>%
+  select(-tv_s, -ooh_s)
+
+holidays_tbl <- read_csv("robyn_source/holidays.csv")
+
+# Read Data ----
+model_output <- read_rds("2023-06-08 09.15/model_output.rds")
+
+best_model_nrmse_tbl <- model_output$resultHypParam %>%
+  as_tibble() %>%
+  slice_min(nrmse)
+
+reallocation_tbl <- read_csv("2023-06-08 09.15/1_21_6_reallocated.csv")
+
+```
+
+Column {.sidebar}
+-----------------------------------------------------------------------
+
+
+
+### Information
+
+Optimize marketing media spend by channel with Robyn (Facebook).
+
+<br>
+<hr style="border:1px solid gray">
+
+
+---
+
+### Explore
+
+```{r}
+selections <- names(simulated_data_tbl) %>% 
+    str_subset("(^revenue)|(^date)", negate = T)
+
+pickerInput(
+  inputId = "covariates", 
+  label = "Covariates", 
+  choices = selections, 
+  selected = selections,
+  options = list(
+    `actions-box` = TRUE, 
+    size = 10,
+    `selected-text-format` = "count > 3"
+  ), 
+  multiple = TRUE
+)
+```
+
+
+
+---
+
+### Optimized Budget
+
+```{r}
+uiOutput("download_ui")
+
+
+output$download_ui <- renderUI({
+  downloadButton(outputId = "download_data", "Download CSV")
+})
+
+
+output$download_data <- downloadHandler(
+  filename = function() "download.csv", 
+  content  = function(file) write_csv(reallocation_tbl, file = file)
+)
+```
+
+
+
+
+Column {data-width=650, .tabset}
+-----------------------------------------------------------------------
+
+### MMM Results
+
+```{r}
+renderImage({
+  
+  path <- "2023-06-08 09.15/1_21_6.png"
+  
+  list(
+    src   = path,
+    width = "100%",
+    alt   = "MMM Results"
+  )
+}, deleteFile = FALSE)
+```
+
+### Budget Allocation
+
+```{r}
+renderImage({
+  
+  path <- "2023-06-08 09.15/1_21_6_reallocated.png"
+  
+  list(
+    src   = path,
+    width = "100%",
+    alt   = "Budget Allocation"
+  )
+}, deleteFile = FALSE)
+```
+
+Column {data-width=350, .tabset}
+-----------------------------------------------------------------------
+
+### Revenue Over Time
+
+```{r}
+plotlyOutput("revenue_plot")
+
+output$revenue_plot <- renderPlotly({
+  
+  facet_ncol <- 1
+  if (length(input$covariates) > 3) facet_ncol <- 2
+  
+  simulated_data_tbl %>% 
+    pivot_longer(
+      cols = -date
+    ) %>%
+    filter(name %in% c("revenue", input$covariates)) %>%
+    group_by(name) %>%
+    plot_time_series(
+      date, value, 
+      .color_var = name, 
+      .facet_ncol = facet_ncol,
+      .smooth = F, 
+      .plotly_slider = TRUE,
+      .legend_show = FALSE
+    )
+})
+
+
+```
+
+
+
+### TS Linear Regression Plot
+
+```{r}
+
+tabsetPanel(
+  tabPanel(
+    "Model",
+    verbatimTextOutput("lm_model")
+  ),
+  tabPanel(
+    "Fitted Plot",
+    plotlyOutput("regression_plot", height = "400px")
+  )
+)
+
+
+
+output$lm_model <- renderPrint({
+  req(!is.null(input$covariates))
+  
+  form <- str_c(input$covariates, collapse = " + ")
+  form <- paste("revenue ~", form) %>% as.formula()
+  
+  simulated_data_tbl %>%
+      lm(form, data = .) %>%
+      summary()
+})
+
+
+
+output$regression_plot <- renderPlotly({
+  req(!is.null(input$covariates))
+  
+  form <- str_c(input$covariates, collapse = " + ")
+  form <- paste("revenue ~", form) %>% as.formula()
+  
+  simulated_data_tbl %>%
+    plot_time_series_regression(
+      date, 
+      .formula = form,
+      .show_summary = FALSE,
+      .title = "Fitted Results"
+    )
+})
+```
+
+### Cross Correlations
+
+```{r}
+
+plotlyOutput("ccf_plot")
+
+output$ccf_plot <- renderPlotly({
+  req(!is.null(input$covariates))
+  
+  facet_ncol <- 1
+  if (length(input$covariates) > 3) facet_ncol <- 2
+  
+  simulated_data_tbl %>%
+    plot_acf_diagnostics(
+      date, revenue, 
+      .ccf_vars = input$covariates, 
+      .show_ccf_vars_only = TRUE,
+      .facet_ncol = facet_ncol,
+      .title = "CCF Correlation with Revenue"
+    )
+  
+  
+})
+```
+
+
+
+
+
+
+
+
+
