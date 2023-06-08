@@ -1,7 +1,4 @@
-# BUSINESS SCIENCE LEARNING LABS ----
-# LAB 61: MARKETING MIX MODELING ----
 # ROBYN SETUP ----
-# **** ----
 
 # ROBYN SETUP SCRIPTS ----
 
@@ -16,4 +13,4 @@ conda_install(envname = 'robyn_marketing_mix', packages = 'nevergrad', pip = TRU
 
 
 
-# C:\\Users\\DavidStephens\\anaconda3\\envs\\lab_61_robyn/python.exe
+# C:\\Users\\DavidStephens\\anaconda3\\envs\\robyn_marketing_mix/python.exe
