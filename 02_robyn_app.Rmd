@@ -1,6 +1,6 @@
 ---
 title: "MMM Automation | Robyn Algorithm"
-output: 
+output:
   flexdashboard::flex_dashboard:
     orientation: columns
     vertical_layout: fill
@@ -8,6 +8,8 @@ output:
       version: 4
       bootswatch: cerulean
 runtime: shiny
+resource_files:
+- .Rprofile
 ---
 
 ```{css}
@@ -56,16 +58,39 @@ library(flexdashboard)
 library(shinyWidgets)
 library(plotly)
 
-options(scipen = 999)
+
+options(scipen = 9999)
+
+PYTHON_DEPENDENCIES = c('pip', 'scikit-learn', 'numpy', 'pandas', 'nevergrad')
+
+
+
+# ------------------ App virtualenv setup (Do not edit) ------------------- #
+
+virtualenv_dir = Sys.getenv('VIRTUALENV_NAME')
+python_path = Sys.getenv('PYTHON_PATH')
+
+# Create virtual env and install dependencies
+reticulate::virtualenv_create(envname = virtualenv_dir, python = python_path)
+reticulate::virtualenv_install(virtualenv_dir, packages = PYTHON_DEPENDENCIES, ignore_installed=TRUE)
+reticulate::use_virtualenv(virtualenv_dir, required = T)
+
+# ------------------------------------------------------------------------- #
 
 
 # * Conda ----
-Sys.setenv(RETICULATE_PYTHON = "C:\\Users\\DavidStephens\\anaconda3\\envs\\robyn_marketing_mix/python.exe")
-use_condaenv('robyn_marketing_mix', required = TRUE)
+# Sys.setenv(RETICULATE_PYTHON = "C:\\Users\\DavidStephens\\anaconda3\\envs\\robyn_marketing_mix/python.exe")
+# use_condaenv('robyn_marketing_mix', required = TRUE)
+
+
+
 
 # * Robyn Functions ----
 source("robyn_source/fb_robyn.func.R")
 source("robyn_source/fb_robyn.optm.R")
+
+
+
 
 # Data ----
 simulated_data_tbl <- read_csv(
@@ -79,6 +104,8 @@ simulated_data_tbl <- read_csv(
   select(-tv_s, -ooh_s)
 
 holidays_tbl <- read_csv("robyn_source/holidays.csv")
+
+
 
 # Read Data ----
 model_output <- read_rds("2023-06-08 09.15/model_output.rds")
